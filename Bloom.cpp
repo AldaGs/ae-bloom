@@ -48,33 +48,29 @@
    build. Flip to 1 in stage 2 once the pyramid kernels exist. */
 #define BL_GPU_RENDER 1		// STAGE 2: real pyramid kernels
 
-#if HAS_CUDA
+#if HAS_CUDA || HAS_METAL
 // POD mirror of the kernel's BLGpuParams - the LAYOUT MUST MATCH the struct in
-// Bloom_Kernel.cu exactly (same fields, same order). Kept here as a plain struct
-// so the .cpp needn't pull CUDA headers.
-struct BLGpuParams {
-	int		offX, offY;
-	int		inW, inH;
-	int		W, H;
-	int		srcPitch, dstPitch;
-	int		pad;
-	int		wx0, wy0, CW, CH;
-	float	scatter, gain, bias, threshold;
-	float	huePreserve, saturation;
-	float	tintR, tintG, tintB, tintAmt;	// tint colour (LINEAR) + amount 0..1
-	float	caAmt, caCX, caCY;				// CA disp + centre (OUTPUT coords)
-	float	streakInten, streakAngle, streakLen, streakThr;	// streaks (0 inten = off)
-	float	streakSpread;					// lateral fan (see BL_STREAK_SPREAD_MAX)
-	int		streakCount, streakQuality;		// quality = BL_SQ_*
-	int		tone, unmult, karis, view;		// view = BL_VIEW_*
-	int		inputStraight;					// 1 = straight rgb, 0 = premultiplied
-};
+// Bloom_Kernel.cu (CUDA) and Bloom_Kernel_Metal.h (Metal) exactly. Shared so
+// there is a single definition to keep in sync.
+#include "Bloom_GpuParams.h"
+#endif
 
+#if HAS_CUDA
 // Defined in Bloom_Kernel.cu. No extern "C": nvcc uses the same MSVC host
 // compiler (-ccbin), so the mangled names match. `wgt` is UNNORMALIZED - the
 // launcher normalizes over however many levels it actually managed to build.
 extern void BL_Bloom_CUDA(const float *src, float *dst, BLGpuParams p,
 						  const float *wgt, int nLev);
+#endif
+
+#if HAS_METAL
+// Defined in Bloom_Metal.mm (Objective-C++). extern "C" so the plain C names
+// match across the C++ / Obj-C++ boundary.
+extern "C" bool BL_MetalCompile(void *devicePV, void **outData, char *errBuf, int errLen);
+extern "C" void BL_MetalDispose(void *dataPV);
+extern "C" bool BL_Bloom_Metal(void *devicePV, void *queuePV, void *dataPV,
+							   void *srcMemPV, void *dstMemPV, BLGpuParams p,
+							   const float *wgt, int nLev);
 #endif
 
 /* Set once in GlobalSetup. Needed to reach the AEGP stream suites, which are the
@@ -1853,11 +1849,41 @@ GPUDeviceSetup (
 	PF_OutData				*out_data,
 	PF_GPUDeviceSetupExtra	*extra )
 {
-	// We only handle CUDA. For any other framework we don't claim support, so AE
-	// keeps that device on the CPU path.
+	// CUDA (Windows): kernel is statically linked, nothing to build here - just
+	// claim F32 support. Any framework we don't handle is left on the CPU path.
 	if (extra->input->what_gpu == PF_GPU_Framework_CUDA) {
 		out_data->out_flags2 = PF_OutFlag2_SUPPORTS_GPU_RENDER_F32;
 	}
+#if HAS_METAL
+	// Metal (macOS): compile the MSL library and build the pipeline states once
+	// per device, stash them in gpu_data. On a compile error, surface Metal's
+	// own message in AE's error dialog so it can be read directly.
+	else if (extra->input->what_gpu == PF_GPU_Framework_METAL) {
+		PF_GPUDeviceSuite1 *gpu = NULL;
+		if (in_data->pica_basicP->AcquireSuite(kPFGPUDeviceSuite,
+				kPFGPUDeviceSuiteVersion1, (const void**)&gpu) || !gpu)
+			return PF_Err_BAD_CALLBACK_PARAM;
+
+		PF_GPUDeviceInfo info;
+		AEFX_CLR_STRUCT(info);
+		PF_Err e = gpu->GetDeviceInfo(in_data->effect_ref,
+					extra->input->device_index, &info);
+		in_data->pica_basicP->ReleaseSuite(kPFGPUDeviceSuite, kPFGPUDeviceSuiteVersion1);
+		if (e) return e;
+
+		void *metalData = NULL;
+		char  errBuf[512] = {0};
+		if (!BL_MetalCompile(info.devicePV, &metalData, errBuf, sizeof(errBuf))) {
+			PF_STRCPY(out_data->return_msg, "Bloom Metal build failed: ");
+			strncat(out_data->return_msg, errBuf,
+					sizeof(out_data->return_msg) - strlen(out_data->return_msg) - 1);
+			out_data->out_flags |= PF_OutFlag_DISPLAY_ERROR_MESSAGE;
+			return PF_Err_INTERNAL_STRUCT_DAMAGED;
+		}
+		extra->output->gpu_data = metalData;			// opaque; freed in Setdown
+		out_data->out_flags2 = PF_OutFlag2_SUPPORTS_GPU_RENDER_F32;
+	}
+#endif
 	return PF_Err_NONE;
 }
 
@@ -1867,11 +1893,17 @@ GPUDeviceSetdown (
 	PF_OutData					*out_data,
 	PF_GPUDeviceSetdownExtra	*extra )
 {
+#if HAS_METAL
+	// Release the Metal pipeline states built in GPUDeviceSetup.
+	if (extra->input->what_gpu == PF_GPU_Framework_METAL && extra->input->gpu_data) {
+		BL_MetalDispose(const_cast<void*>(extra->input->gpu_data));
+	}
+#endif
 	// CUDA kernel is statically linked; nothing device-specific to release.
 	return PF_Err_NONE;
 }
 
-#if HAS_CUDA
+#if HAS_CUDA || HAS_METAL
 static PF_Err
 SmartRenderGPU (
 	PF_InData			*in_data,
@@ -1958,10 +1990,29 @@ SmartRenderGPU (
 			memset(wgt, 0, sizeof(wgt));
 			BL_RawWeights(nLev, BL_LevelF(info->radius), (float)info->falloff, wgt);
 
-			BL_Bloom_CUDA((const float*)src_mem, (float*)dst_mem, p, wgt, (int)nLev);
-
-			if (cudaPeekAtLastError() != cudaSuccess)
-				err = PF_Err_INTERNAL_STRUCT_DAMAGED;
+#if HAS_CUDA
+			if (extra->input->what_gpu == PF_GPU_Framework_CUDA) {
+				BL_Bloom_CUDA((const float*)src_mem, (float*)dst_mem, p, wgt, (int)nLev);
+				if (cudaPeekAtLastError() != cudaSuccess)
+					err = PF_Err_INTERNAL_STRUCT_DAMAGED;
+			}
+#endif
+#if HAS_METAL
+			if (extra->input->what_gpu == PF_GPU_Framework_METAL) {
+				// Metal needs the device + command queue (CUDA used the default
+				// context). gpu_data holds the pipeline states built in setup.
+				PF_GPUDeviceInfo devInfo;
+				AEFX_CLR_STRUCT(devInfo);
+				ERR(gpu->GetDeviceInfo(in_data->effect_ref,
+						extra->input->device_index, &devInfo));
+				if (!err) {
+					if (!BL_Bloom_Metal(devInfo.devicePV, devInfo.command_queuePV,
+							const_cast<void*>(extra->input->gpu_data),
+							src_mem, dst_mem, p, wgt, (int)nLev))
+						err = PF_Err_INTERNAL_STRUCT_DAMAGED;
+				}
+			}
+#endif
 		}
 	}
 
@@ -1969,7 +2020,7 @@ SmartRenderGPU (
 	suites.HandleSuite1()->host_unlock_handle(infoH);
 	return err;
 }
-#endif // HAS_CUDA
+#endif // HAS_CUDA || HAS_METAL
 
 /* =========================================================================
    Classic render path (Premiere / legacy): pass through. AE uses SmartFX.
@@ -2059,7 +2110,7 @@ EffectMain(
 				err = GPUDeviceSetdown(in_data, out_data,
 						reinterpret_cast<PF_GPUDeviceSetdownExtra*>(extra));
 				break;
-#if HAS_CUDA
+#if HAS_CUDA || HAS_METAL
 			case PF_Cmd_SMART_RENDER_GPU:
 				err = SmartRenderGPU(in_data, out_data,
 						reinterpret_cast<PF_SmartRenderExtra*>(extra));
