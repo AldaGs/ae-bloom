@@ -46,6 +46,8 @@ struct BLMetalGPUData {
 
 /* ------------------------------------------------------- compile / dispose */
 
+extern "C" void BL_MetalDispose (void *dataPV);	// defined below; used in Compile
+
 extern "C" bool
 BL_MetalCompile (void *devicePV, void **outData, char *errBuf, int errLen)
 {
