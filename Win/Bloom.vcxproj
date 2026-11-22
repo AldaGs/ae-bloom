@@ -208,7 +208,7 @@
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
       <AdditionalIncludeDirectories>..\..\..\Headers;..\..\..\Headers\SP;..\..\..\Headers\Win;..\..\..\Resources;..\..\..\Util;$(CUDA_PATH)\include;..\..\..\GPUUtils;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <StructMemberAlignment>Default</StructMemberAlignment>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <PrecompiledHeader>
@@ -264,7 +264,7 @@
     <ClCompile>
       <Optimization>MaxSpeed</Optimization>
       <AdditionalIncludeDirectories>..\..\..\Headers;..\..\..\Headers\SP;..\..\..\Headers\Win;..\..\..\Resources;..\..\..\Util;$(CUDA_PATH)\include;..\..\..\GPUUtils;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <StructMemberAlignment>Default</StructMemberAlignment>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
       <PrecompiledHeader>
@@ -348,7 +348,7 @@ cl /D "MSWindows" /EP $(IntDir)%(Filename).rrc &gt;               "$(ProjectDir)
       <FileType>Document</FileType>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"$(CUDA_PATH)\bin\nvcc.exe" -D_DEBUG -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_75,code=compute_75 -use_fast_math -m64 -c -ccbin "$(VC_ExecutablePath_x64_x64)" -D_MBCS -Xcompiler /MDd,/EHsc,/W3,/nologo,/Zi -I"$(CUDA_PATH)\include" -I./ -I"$(ProjectDir)..\..\..\GPUUtils" -o "$(IntDir)%(Filename).obj" "$(ProjectDir)..\%(Filename).cu"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(IntDir)%(Filename).obj</Outputs>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"$(CUDA_PATH)\bin\nvcc.exe" -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_75,code=compute_75 -use_fast_math -m64 -c -ccbin "$(VC_ExecutablePath_x64_x64)" -D_MBCS -Xcompiler /MD,/EHsc,/W3,/nologo,/Zi -I"$(CUDA_PATH)\include" -I./ -I"$(ProjectDir)..\..\..\GPUUtils" -o "$(IntDir)%(Filename).obj" "$(ProjectDir)..\%(Filename).cu"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"$(CUDA_PATH)\bin\nvcc.exe" -gencode=arch=compute_75,code=sm_75 -gencode=arch=compute_86,code=sm_86 -gencode=arch=compute_89,code=sm_89 -gencode=arch=compute_75,code=compute_75 -use_fast_math -m64 -c -ccbin "$(VC_ExecutablePath_x64_x64)" -D_MBCS -Xcompiler /MT,/EHsc,/W3,/nologo,/Zi -I"$(CUDA_PATH)\include" -I./ -I"$(ProjectDir)..\..\..\GPUUtils" -o "$(IntDir)%(Filename).obj" "$(ProjectDir)..\%(Filename).cu"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(IntDir)%(Filename).obj</Outputs>
       <Message>Compiling CUDA kernel %(Filename).cu (nvcc, sm_75+sm_86+sm_89)</Message>
     </CustomBuild>
