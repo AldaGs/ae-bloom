@@ -17,7 +17,7 @@ resource 'PiPL' (16000) {
 		},
 		/* [3] */
 		Category {
-			"ags_utilities"
+			"Utilities"
 		},
 #ifdef AE_OS_WIN
     #if defined(AE_PROC_INTELx64)
