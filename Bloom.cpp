@@ -2057,7 +2057,7 @@ PF_Err PluginDataEntryFunction2(
 		inPluginDataCallBackPtr,
 		"Bloom",					// Name
 		"aldai Bloom",				// Match Name
-		"Learning",					// Category
+		"Utilities",					// Category
 		AE_RESERVED_INFO,			// Reserved Info
 		"EffectMain",				// Entry point
 		"https://www.adobe.com");	// support URL
